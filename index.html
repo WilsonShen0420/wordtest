@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>語詞測驗工具</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>語詞練習</h1>
+      <p>
+        這個工具會從詞庫中隨機挑選幾個詞語，以短句的方式呈現，請輸入句子中的
+        空格部分。按下「開始測驗」後，系統會詢問要測驗的語詞數量，然後開始朗
+        讀每一句短句，請在空格中填入正確的詞語。
+      </p>
+      <div class="controls">
+        <button id="startButton">開始測驗</button>
+        <button id="resetButton" disabled>重新開始</button>
+      </div>
+      <div id="quizArea" class="quiz-area"></div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>

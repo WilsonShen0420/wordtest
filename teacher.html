@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>詞庫管理</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>詞庫管理</h1>
+      <p>
+        您可以上傳一個 JSON 檔案來更新瀏覽器本地的詞庫。<br />
+        每筆資料需要包含 <code>word</code>（詞語）和 <code>sentence</code>（使用該詞的例句）兩個欄位。<br />
+        更新後的詞庫只會存於您目前的瀏覽器，本工具不會將資料上傳到伺服器。如果要分享給其他人使用，請將
+        <code>words.json</code> 更新到 GitHub 儲存庫。
+      </p>
+      <input type="file" id="dataFile" accept="application/json" />
+      <button id="uploadBtn">上傳並儲存</button>
+      <p id="status"></p>
+      <hr />
+      <p>
+        <a href="index.html">返回測驗頁面</a>
+      </p>
+    </div>
+    <script>
+      const dataFile = document.getElementById('dataFile');
+      const uploadBtn = document.getElementById('uploadBtn');
+      const statusEl = document.getElementById('status');
+
+      uploadBtn.addEventListener('click', () => {
+        const file = dataFile.files[0];
+        if (!file) {
+          statusEl.textContent = '請先選擇檔案';
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (!Array.isArray(data)) throw new Error('格式錯誤');
+            // 檢查每筆資料
+            for (const item of data) {
+              if (!item.word || !item.sentence) {
+                throw new Error('資料必須包含 word 和 sentence');
+              }
+            }
+            localStorage.setItem('wordData', JSON.stringify(data));
+            statusEl.textContent = `成功匯入 ${data.length} 筆資料。`; 
+          } catch (err) {
+            console.error(err);
+            statusEl.textContent = '檔案格式不正確：' + err.message;
+          }
+        };
+        reader.readAsText(file, 'utf-8');
+      });
+    </script>
+  </body>
+</html>
