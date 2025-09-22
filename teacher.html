@@ -1,60 +1,216 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>詞庫管理</title>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <div class="container">
-      <h1>詞庫管理</h1>
-      <p>
-        您可以上傳一個 JSON 檔案來更新瀏覽器本地的詞庫。<br />
-        每筆資料需要包含 <code>word</code>（詞語）和 <code>sentence</code>（使用該詞的例句）兩個欄位。<br />
-        更新後的詞庫只會存於您目前的瀏覽器，本工具不會將資料上傳到伺服器。如果要分享給其他人使用，請將
-        <code>words.json</code> 更新到 GitHub 儲存庫。
-      </p>
-      <input type="file" id="dataFile" accept="application/json" />
-      <button id="uploadBtn">上傳並儲存</button>
-      <p id="status"></p>
-      <hr />
-      <p>
-        <a href="index.html">返回測驗頁面</a>
-      </p>
-    </div>
-    <script>
-      const dataFile = document.getElementById('dataFile');
-      const uploadBtn = document.getElementById('uploadBtn');
-      const statusEl = document.getElementById('status');
+<head>
+  <meta charset="UTF-8" />
+  <title>教師管理頁</title>
+  <script type="module" src="./firebase-config.js"></script>
+  <script type="module" src="./firebase-init.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    section { margin: 20px 0; padding: 12px; border: 1px solid #ddd; border-radius: 8px; }
+    h3 { margin-top: 0; }
+    label { margin-right: 10px; }
+    input, select, button { margin: 4px; }
+    #lessonSelect, #lessonSelectBatch { min-width: 120px; }
+  </style>
+</head>
+<body>
+  <h1>教師管理頁</h1>
+  <p>
+    <button id="btnLogin">Google 登入</button>
+    <button id="btnLogout">登出</button>
+    <span id="userInfo"></span>
+  </p>
 
-      uploadBtn.addEventListener('click', () => {
-        const file = dataFile.files[0];
-        if (!file) {
-          statusEl.textContent = '請先選擇檔案';
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const data = JSON.parse(e.target.result);
-            if (!Array.isArray(data)) throw new Error('格式錯誤');
-            // 檢查每筆資料
-            for (const item of data) {
-              if (!item.word || !item.sentence) {
-                throw new Error('資料必須包含 word 和 sentence');
-              }
-            }
-            localStorage.setItem('wordData', JSON.stringify(data));
-            statusEl.textContent = `成功匯入 ${data.length} 筆資料。`; 
-          } catch (err) {
-            console.error(err);
-            statusEl.textContent = '檔案格式不正確：' + err.message;
-          }
-        };
-        reader.readAsText(file, 'utf-8');
+  <!-- 課次管理 -->
+  <section>
+    <h3>課次管理</h3>
+    <div>
+      <label>新增課次 ID：<input id="newLessonId" /></label>
+      <label>課次名稱：<input id="newLessonTitle" /></label>
+      <button id="btnAddLesson">新增課次</button>
+    </div>
+    <div>
+      <h4>現有課次：</h4>
+      <ul id="lessonList"></ul>
+    </div>
+  </section>
+
+  <!-- 單筆新增 / 更新 -->
+  <section>
+    <h3>單筆新增/更新詞語</h3>
+    <label>課次：
+      <select id="lessonSelect"></select>
+    </label>
+    <label>詞語：<input id="wordInput" /></label>
+    <label>短句：<input id="sentenceInput" style="width:300px;" /></label>
+    <button id="btnAddWord">新增/更新</button>
+    <span id="msgSingle"></span>
+  </section>
+
+  <!-- 批次上傳 JSON -->
+  <section>
+    <h3>批次上傳（JSON → 指定課次 Upsert）</h3>
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <label>課次：
+        <select id="lessonSelectBatch" required></select>
+      </label>
+      <input type="file" id="fileBatch" accept="application/json" />
+      <button id="btnUploadBatch">上傳並合併</button>
+      <span id="batchMsg" style="color:#555;"></span>
+    </div>
+    <div id="batchProgress" style="margin-top:8px; font-size: 14px; color:#333;"></div>
+    <div id="batchErrors" style="margin-top:8px; font-size: 13px; color:#b20000;"></div>
+    <details style="margin-top:8px;">
+      <summary>JSON 範例格式</summary>
+      <pre>[
+  { "word": "學習", "sentence": "我每天努力學習新的技能。" },
+  { "word": "電腦", "sentence": "這臺電腦運行速度很快。" }
+]</pre>
+    </details>
+  </section>
+
+  <script type="module">
+    import { db, auth, login, logout } from './firebase-init.js';
+    import {
+      doc, setDoc, collection, getDocs, query
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const $ = (sel) => document.querySelector(sel);
+
+    const $userInfo = $('#userInfo');
+    const $btnLogin = $('#btnLogin');
+    const $btnLogout = $('#btnLogout');
+    const $lessonList = $('#lessonList');
+    const $lessonSelect = $('#lessonSelect');
+    const $lessonSelectBatch = $('#lessonSelectBatch');
+
+    // 登入/登出
+    $btnLogin.addEventListener('click', async () => { await login(); });
+    $btnLogout.addEventListener('click', async () => { await logout(); });
+    auth.onAuthStateChanged(user => {
+      if (user) $userInfo.textContent = `已登入：${user.email}`;
+      else $userInfo.textContent = '未登入';
+    });
+
+    // 課次管理
+    async function refreshLessons() {
+      $lessonList.innerHTML = '';
+      $lessonSelect.innerHTML = '';
+      $lessonSelectBatch.innerHTML = '';
+      const snap = await getDocs(query(collection(db, 'lessons')));
+      if (!snap.docs.length) {
+        // 預設建立 L1
+        await setDoc(doc(db, 'lessons', 'L1'), { lessonId: 'L1', title: '第1課' }, { merge: true });
+        return refreshLessons();
+      }
+      snap.docs.forEach(d => {
+        const data = d.data();
+        const li = document.createElement('li');
+        li.textContent = `${data.lessonId} - ${data.title}`;
+        $lessonList.appendChild(li);
+
+        const opt1 = document.createElement('option');
+        opt1.value = data.lessonId;
+        opt1.textContent = data.title || data.lessonId;
+        $lessonSelect.appendChild(opt1);
+
+        const opt2 = document.createElement('option');
+        opt2.value = data.lessonId;
+        opt2.textContent = data.title || data.lessonId;
+        $lessonSelectBatch.appendChild(opt2);
       });
-    </script>
-  </body>
+    }
+
+    $('#btnAddLesson').addEventListener('click', async () => {
+      const id = $('#newLessonId').value.trim();
+      const title = $('#newLessonTitle').value.trim();
+      if (!id) return alert('課次 ID 必填');
+      await setDoc(doc(db, 'lessons', id), { lessonId: id, title }, { merge: true });
+      refreshLessons();
+    });
+
+    // 單筆 upsert
+    $('#btnAddWord').addEventListener('click', async () => {
+      const lessonId = $lessonSelect.value;
+      const word = $('#wordInput').value.trim();
+      const sentence = $('#sentenceInput').value.trim();
+      if (!lessonId || !word || !sentence) return alert('欄位必填');
+      const docId = `${word}::${lessonId}`;
+      await setDoc(doc(db, 'words', docId), {
+        word, sentence, lessonId,
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+      $('#msgSingle').textContent = '已更新';
+    });
+
+    // 批次上傳 JSON
+    const $fileBatch = $('#fileBatch');
+    const $btnUploadBatch = $('#btnUploadBatch');
+    const $batchMsg = $('#batchMsg');
+    const $batchProgress = $('#batchProgress');
+    const $batchErrors = $('#batchErrors');
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function validateRow(row, index) {
+      const errors = [];
+      if (!row || typeof row !== 'object') errors.push(`第 ${index+1} 筆不是物件`);
+      if (!row.word || typeof row.word !== 'string') errors.push(`第 ${index+1} 筆缺少 word`);
+      if (!row.sentence || typeof row.sentence !== 'string') errors.push(`第 ${index+1} 筆缺少 sentence`);
+      return errors;
+    }
+
+    async function batchUpsertWords(rows, lessonId, { chunkSize=100, betweenChunksMs=200 }={}) {
+      let ok=0, fail=0, failed=[];
+      const allErrs=[];
+      rows.forEach((r,i)=>allErrs.push(...validateRow(r,i)));
+      if(allErrs.length) throw new Error('格式驗證失敗：\n'+allErrs.join('\n'));
+
+      for (let i=0;i<rows.length;i+=chunkSize) {
+        const chunk=rows.slice(i,i+chunkSize);
+        const tasks=chunk.map(async r=>{
+          const word=r.word.trim(), sentence=r.sentence.trim();
+          const docId=`${word}::${lessonId}`;
+          try{
+            await setDoc(doc(db,'words',docId),{
+              word, sentence, lessonId,
+              updated_at:new Date().toISOString()
+            },{merge:true});
+            ok++;
+          }catch(err){
+            fail++; failed.push({word,error:String(err)});
+          }
+        });
+        await Promise.allSettled(tasks);
+        $batchProgress.textContent=`進度：已處理 ${Math.min(i+chunk.length,rows.length)}/${rows.length} 筆（成功 ${ok}、失敗 ${fail}）`;
+        if(i+chunkSize<rows.length) await sleep(betweenChunksMs);
+      }
+      return {ok,fail,failed};
+    }
+
+    $btnUploadBatch.addEventListener('click', async ()=>{
+      $batchMsg.textContent=''; $batchProgress.textContent=''; $batchErrors.textContent='';
+      const lessonId=$lessonSelectBatch.value;
+      const file=$fileBatch.files?.[0];
+      if(!lessonId) return alert('請選擇課次');
+      if(!file) return alert('請選擇 JSON 檔');
+      try{
+        if(!auth.currentUser) await login();
+        const text=await file.text();
+        const rows=JSON.parse(text);
+        if(!Array.isArray(rows)) return alert('JSON 檔格式錯誤');
+        $batchMsg.textContent='開始寫入雲端…';
+        const {ok,fail,failed}=await batchUpsertWords(rows,lessonId);
+        $batchMsg.textContent=`完成：成功 ${ok}、失敗 ${fail}`;
+        if(failed.length) $batchErrors.textContent=failed.map(f=>`詞語：${f.word} → ${f.error}`).join('\n');
+      }catch(err){
+        $batchMsg.textContent='上傳失敗';
+        $batchErrors.textContent=String(err);
+      }
+    });
+
+    refreshLessons();
+  </script>
+</body>
 </html>
