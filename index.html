@@ -2,25 +2,261 @@
 <html lang="zh-Hant">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>語詞測驗工具</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>語詞練習（學生頁）</title>
     <link rel="stylesheet" href="style.css" />
+    <!-- 可選：頁面基本樣式（若沒有 style.css 也能正常運作） -->
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans TC, "PingFang TC", "Microsoft JhengHei", Arial, sans-serif; background:#f8f9fb; margin:0; }
+      .container { max-width: 900px; margin: 24px auto; background:#fff; border:1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.05); padding: 20px 24px; }
+      h1 { margin: 6px 0 12px; font-size: 22px; }
+      .controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin: 8px 0 16px; }
+      .controls select, .controls button { height: 36px; padding: 0 12px; border:1px solid #d1d5db; border-radius:8px; background:#fff; cursor:pointer; }
+      .controls button { background:#0ea5e9; color:#fff; border-color:#0ea5e9; }
+      .controls button.secondary { background:#e5e7eb; color:#111827; border-color:#e5e7eb; }
+      .hint { color:#6b7280; font-size: 13px; }
+      #quizArea { display:grid; gap:12px; margin-top: 8px; }
+      .item { padding:14px 12px; border:1px solid #e5e7eb; border-radius:10px; background:#fafafa; }
+      .q { margin: 0 0 8px; }
+      .blankInput { width: 260px; max-width: 60vw; padding:8px 10px; border:2px solid #d1d5db; border-radius:8px; font-size: 16px; }
+      .blankInput.correct { border-color:#10b981; background:#ecfdf5; }
+      .blankInput.incorrect { border-color:#ef4444; background:#fef2f2; }
+      .answer { font-size: 13px; color:#ef4444; display:none; }
+      .answer.show { display:inline; }
+      .footer { display:flex; gap:8px; align-items:center; margin-top: 6px; }
+      #resultBar { margin-top: 14px; font-weight: 600; }
+      .muted { color:#6b7280; }
+    </style>
   </head>
   <body>
     <div class="container">
-      <h1>語詞練習</h1>
-      <p>
-        這個工具會從詞庫中隨機挑選幾個詞語，以短句的方式呈現，請輸入句子中的
-        空格部分。按下「開始測驗」後，系統會詢問要測驗的語詞數量，然後開始朗
-        讀每一句短句，請在空格中填入正確的詞語。
-      </p>
+      <h1>語詞練習（學生）</h1>
       <div class="controls">
+        <label>選擇課次：
+          <select id="lessonSelect"></select>
+        </label>
         <button id="startButton">開始測驗</button>
-        <button id="resetButton" disabled>重新開始</button>
+        <button id="resetButton" class="secondary">重新開始</button>
+        <span class="hint">提示：開始後會依序朗讀完整短句（每題間隔 15 秒）。</span>
       </div>
-      <div id="quizArea" class="quiz-area"></div>
+
+      <div id="quizArea"></div>
+      <div id="resultBar" class="muted"></div>
     </div>
-    <script src="script.js"></script>
+
+    <!-- 核心互動邏輯（若你已經有 script.js，也可改用外部檔；這裡內嵌一份可直接用） -->
+    <script>
+      // =============== 基本工具 ===============
+      const $ = (sel) => document.querySelector(sel);
+      const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+      const startButton = document.getElementById('startButton');
+      const resetButton = document.getElementById('resetButton');
+      const quizArea = document.getElementById('quizArea');
+      const resultBar = document.getElementById('resultBar');
+
+      let currentSentences = []; // [{word, sentence, lessonId?}]
+      let speakTimerIds = [];
+
+      // Fisher–Yates 洗牌
+      function shuffle(arr){
+        const a = arr.slice();
+        for(let i=a.length-1;i>0;i--){
+          const j = Math.floor(Math.random()*(i+1));
+          [a[i],a[j]]=[a[j],a[i]];
+        }
+        return a;
+      }
+
+      // 產生題目 HTML
+      function renderQuiz(items){
+        quizArea.innerHTML = '';
+        items.forEach((it, idx) => {
+          const container = document.createElement('div');
+          container.className = 'item';
+
+          const shown = it.sentence.replaceAll(it.word, '_____');
+          const q = document.createElement('p');
+          q.className = 'q';
+          q.textContent = `${idx+1}. ${shown}`;
+
+          const input = document.createElement('input');
+          input.className = 'blankInput';
+          input.placeholder = '在此輸入詞語…';
+
+          const ans = document.createElement('span');
+          ans.className = 'answer';
+          ans.textContent = `  正解：${it.word}`;
+
+          const footer = document.createElement('div');
+          footer.className = 'footer';
+          footer.appendChild(input);
+          footer.appendChild(ans);
+
+          container.appendChild(q);
+          container.appendChild(footer);
+          quizArea.appendChild(container);
+        });
+      }
+
+      // 評分
+      function grade(){
+        const inputs = $$('.blankInput');
+        let correct = 0;
+        inputs.forEach((el, i) => {
+          const answer = currentSentences[i].word.trim();
+          const val = (el.value||'').trim();
+          const isOk = val === answer;
+          el.classList.remove('correct','incorrect');
+          el.classList.add(isOk? 'correct':'incorrect');
+          const ans = el.parentElement.querySelector('.answer');
+          if(!isOk) ans.classList.add('show');
+          else ans.classList.remove('show');
+          if(isOk) correct++;
+        });
+        resultBar.classList.remove('muted');
+        resultBar.textContent = `作答完成：${correct} / ${inputs.length}`;
+      }
+
+      // 朗讀（Web Speech API）
+      function speakSentence(text){
+        if(!('speechSynthesis' in window)) return;
+        const u = new SpeechSynthesisUtterance(text);
+        // 嘗試挑選中文語音
+        const pickVoice = () => {
+          const vs = speechSynthesis.getVoices();
+          const zh = vs.find(v => /zh|chinese|mandarin/i.test(v.lang+v.name));
+          if(zh) u.voice = zh;
+        };
+        if(speechSynthesis.getVoices().length) pickVoice();
+        else window.speechSynthesis.onvoiceschanged = pickVoice;
+        speechSynthesis.speak(u);
+      }
+
+      function clearSpeechQueue(){
+        speakTimerIds.forEach(id => clearTimeout(id));
+        speakTimerIds = [];
+        if('speechSynthesis' in window) speechSynthesis.cancel();
+      }
+
+      async function startTest(){
+        clearSpeechQueue();
+        resultBar.textContent = '';
+        const nRaw = prompt('要測試幾個詞語？（輸入數字）');
+        if(nRaw===null) return; // 取消
+        const n = Math.max(1, Math.min(2000, Number(nRaw)||0));
+        if(!n) return alert('請輸入數字');
+
+        // 從載入的資料中隨機取 n 題
+        const pool = await window.loadWordData();
+        if(!pool || !pool.length) {
+          alert('目前沒有可出題的詞語，請通知教師新增資料。');
+          return;
+        }
+        currentSentences = shuffle(pool).slice(0, n);
+        renderQuiz(currentSentences);
+
+        // 依序朗讀（每題間隔 15 秒）
+        const gap = 15000; // 15s
+        currentSentences.forEach((it, idx) => {
+          const t = setTimeout(() => {
+            // 朗讀完整句（包含被空格遮住的詞）
+            speakSentence(`${idx+1}。${it.sentence}`);
+            // 最後一題朗讀完，稍後自動評分（可調整為手動）
+            if(idx === currentSentences.length-1){
+              setTimeout(grade, 2000);
+            }
+          }, idx * gap);
+          speakTimerIds.push(t);
+        });
+      }
+
+      startButton.addEventListener('click', startTest);
+      resetButton.addEventListener('click', () => {
+        clearSpeechQueue();
+        quizArea.innerHTML = '';
+        resultBar.classList.add('muted');
+        resultBar.textContent = '已重置。';
+      });
+
+      // ====== 預設資料載入（會被下方 Firebase 版本覆寫） ======
+      window.loadWordData = async function(){
+        try {
+          const stored = localStorage.getItem('wordData');
+          if(stored) return JSON.parse(stored);
+        } catch(_) {}
+        try {
+          const r = await fetch('words.json?v=' + Date.now());
+          return await r.json();
+        } catch(_) { return []; }
+      }
+    </script>
+
+    <!-- Firebase 設定（請先在專案根目錄放好 firebase-config.js 與 firebase-init.js） -->
+    <script type="module">
+      import { db } from './firebase-init.js';
+      import { collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+      const $ = (sel) => document.querySelector(sel);
+      const $lessonSelect = $('#lessonSelect');
+
+      // 載入課次下拉
+      async function loadLessonsToSelect(){
+        $lessonSelect.innerHTML = '';
+        try{
+          const snap = await getDocs(query(collection(db, 'lessons')));
+          const items = snap.docs.map(d => d.data());
+          if(!items.length){
+            // 若尚無課次，提供預設選項（仍可用 words.json 備援）
+            const opt = document.createElement('option');
+            opt.value = 'L1';
+            opt.textContent = '第1課';
+            $lessonSelect.appendChild(opt);
+          } else {
+            for(const it of items){
+              const opt = document.createElement('option');
+              opt.value = it.lessonId;
+              opt.textContent = it.title || it.lessonId;
+              $lessonSelect.appendChild(opt);
+            }
+          }
+        }catch(e){
+          // Firestore 失敗時，仍備一個基本選項
+          const opt = document.createElement('option');
+          opt.value = 'L1';
+          opt.textContent = '第1課';
+          $lessonSelect.appendChild(opt);
+        }
+      }
+
+      // 覆寫題庫載入邏輯：優先讀取「所選課次」的 Firestore
+      window.loadWordData = async function(){
+        const lessonId = $lessonSelect.value;
+        // 1) Firestore：該課次所有詞語
+        try{
+          const snap = await getDocs(query(collection(db, 'words'), where('lessonId','==', lessonId)));
+          const arr = snap.docs.map(d => d.data());
+          if(Array.isArray(arr) && arr.length){
+            return arr.map(x => ({ word: x.word, sentence: x.sentence, lessonId: x.lessonId }));
+          }
+        }catch(e){ console.warn('讀取 Firestore 失敗，改走備援', e); }
+
+        // 2) localStorage 備援（僅限教師本機測試）
+        try{
+          const stored = JSON.parse(localStorage.getItem('wordData')||'[]');
+          const filtered = stored.filter(x => x.lessonId === lessonId || !x.lessonId);
+          if(filtered.length) return filtered;
+        }catch(_){ }
+
+        // 3) 靜態 words.json 備援（舊檔不含課次，當作全課共用）
+        try{
+          const r = await fetch('words.json?v=' + Date.now());
+          return await r.json();
+        }catch(_){ return []; }
+      }
+
+      // 初始化課次下拉
+      loadLessonsToSelect();
+    </script>
   </body>
 </html>
