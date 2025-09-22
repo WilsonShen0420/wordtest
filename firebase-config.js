@@ -1,8 +1,9 @@
-export const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+const firebaseConfig = {
+  apiKey: "AIzaSyCVNYd41ENae-BblONYGFwFj8kdRyv-Mr4",
+  authDomain: "trach-test.firebaseapp.com",
+  projectId: "trach-test",
+  storageBucket: "trach-test.firebasestorage.app",
+  messagingSenderId: "318361732686",
+  appId: "1:318361732686:web:d63db6fc7f6c3c5868651f",
+  measurementId: "G-CJTHFH1KY1"
 };
