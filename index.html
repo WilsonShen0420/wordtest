@@ -36,6 +36,7 @@
           <select id="lessonSelect"></select>
         </label>
         <button id="startButton">開始測驗</button>
+        <button id="pauseButton" class="secondary" disabled>暫停</button>
         <button id="resetButton" class="secondary">重新開始</button>
         <span class="hint">提示：開始後會依序朗讀完整短句（每題間隔 35 秒）。</span>
       </div>
@@ -51,12 +52,17 @@
       const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
       const startButton = document.getElementById('startButton');
+      const pauseButton = document.getElementById('pauseButton');
       const resetButton = document.getElementById('resetButton');
       const quizArea = document.getElementById('quizArea');
       const resultBar = document.getElementById('resultBar');
 
       let currentSentences = []; // [{word, sentence, lessonId?}]
-      let speakTimerIds = [];
+      let currentIndex = 0;
+      let speakTimeoutId = null;
+      let finishTimeoutId = null;
+      let isPaused = false;
+      const gap = 35000; // 35s
 
       // Fisher–Yates 洗牌
       function shuffle(arr){
@@ -82,7 +88,7 @@
 
           const input = document.createElement('input');
           input.className = 'blankInput';
-          input.placeholder = '在此輸入詞語…';
+          input.placeholder = '在此輸詞語…';
 
           const ans = document.createElement('span');
           ans.className = 'answer';
@@ -110,11 +116,14 @@
           el.classList.remove('correct','incorrect');
           el.classList.add(isOk? 'correct':'incorrect');
           const ans = el.parentElement.querySelector('.answer');
-          ans.classList.remove('show');
+          ans.classList.add('show');
           if(isOk) correct++;
         });
         resultBar.classList.remove('muted');
-        resultBar.textContent = `作答完成：${correct} / ${inputs.length}`;
+        resultBar.textContent = `朗讀完成，作答結果：${correct} / ${inputs.length}`;
+        pauseButton.disabled = true;
+        pauseButton.textContent = '暫停';
+        isPaused = false;
       }
 
       // 朗讀（Web Speech API）
@@ -133,9 +142,65 @@
       }
 
       function clearSpeechQueue(){
-        speakTimerIds.forEach(id => clearTimeout(id));
-        speakTimerIds = [];
+        if(speakTimeoutId){
+          clearTimeout(speakTimeoutId);
+          speakTimeoutId = null;
+        }
+        if(finishTimeoutId){
+          clearTimeout(finishTimeoutId);
+          finishTimeoutId = null;
+        }
         if('speechSynthesis' in window) speechSynthesis.cancel();
+      }
+
+      function scheduleReading(initialDelay = 0){
+        if(currentIndex >= currentSentences.length){
+          grade();
+          return;
+        }
+        speakTimeoutId = setTimeout(() => {
+          if(isPaused) return;
+          speakSentence(`${currentIndex+1}。${currentSentences[currentIndex].sentence}`);
+          currentIndex++;
+          if(currentIndex >= currentSentences.length){
+            finishTimeoutId = setTimeout(() => {
+              if(!isPaused) grade();
+            }, 2000);
+          } else {
+            scheduleReading(gap);
+          }
+        }, initialDelay);
+      }
+
+      function pauseReading(){
+        if(!currentSentences.length) return;
+        isPaused = true;
+        if(speakTimeoutId){
+          clearTimeout(speakTimeoutId);
+          speakTimeoutId = null;
+        }
+        if(finishTimeoutId){
+          clearTimeout(finishTimeoutId);
+          finishTimeoutId = null;
+        }
+        if('speechSynthesis' in window){
+          try {
+            window.speechSynthesis.pause();
+          } catch(_) {}
+          window.speechSynthesis.cancel();
+        }
+        pauseButton.textContent = '繼續';
+        resultBar.classList.remove('muted');
+        resultBar.textContent = '朗讀已暫停。';
+      }
+
+      function resumeReading(){
+        if(!currentSentences.length) return;
+        isPaused = false;
+        pauseButton.textContent = '暫停';
+        resultBar.classList.add('muted');
+        resultBar.textContent = '朗讀繼續中…';
+        scheduleReading(0);
       }
 
       async function startTest(){
@@ -154,28 +219,32 @@
         }
         currentSentences = shuffle(pool).slice(0, n);
         renderQuiz(currentSentences);
+        currentIndex = 0;
+        isPaused = false;
+        pauseButton.disabled = false;
+        pauseButton.textContent = '暫停';
+        resultBar.classList.add('muted');
+        resultBar.textContent = '朗讀中…';
 
-        // 依序朗讀（每題間隔 35 秒）
-        const gap = 35000; // 35s
-        currentSentences.forEach((it, idx) => {
-          const t = setTimeout(() => {
-            // 朗讀完整句（包含被空格遮住的詞）
-            speakSentence(`${idx+1}。${it.sentence}`);
-            // 最後一題朗讀完，稍後自動評分（可調整為手動）
-            if(idx === currentSentences.length-1){
-              setTimeout(grade, 2000);
-            }
-          }, idx * gap);
-          speakTimerIds.push(t);
-        });
+        scheduleReading(0);
       }
 
       startButton.addEventListener('click', startTest);
+      pauseButton.addEventListener('click', () => {
+        if(!currentSentences.length) return;
+        if(isPaused) resumeReading();
+        else pauseReading();
+      });
       resetButton.addEventListener('click', () => {
         clearSpeechQueue();
         quizArea.innerHTML = '';
         resultBar.classList.add('muted');
         resultBar.textContent = '已重置。';
+        currentSentences = [];
+        currentIndex = 0;
+        isPaused = false;
+        pauseButton.disabled = true;
+        pauseButton.textContent = '暫停';
       });
 
       // ====== 預設資料載入（會被下方 Firebase 版本覆寫） ======
