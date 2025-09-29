@@ -37,7 +37,7 @@
         </label>
         <button id="startButton">開始測驗</button>
         <button id="resetButton" class="secondary">重新開始</button>
-        <span class="hint">提示：開始後會依序朗讀完整短句（每題間隔 15 秒）。</span>
+        <span class="hint">提示：開始後會依序朗讀完整短句（每題間隔 35 秒）。</span>
       </div>
 
       <div id="quizArea"></div>
@@ -110,8 +110,7 @@
           el.classList.remove('correct','incorrect');
           el.classList.add(isOk? 'correct':'incorrect');
           const ans = el.parentElement.querySelector('.answer');
-          if(!isOk) ans.classList.add('show');
-          else ans.classList.remove('show');
+          ans.classList.remove('show');
           if(isOk) correct++;
         });
         resultBar.classList.remove('muted');
@@ -156,8 +155,8 @@
         currentSentences = shuffle(pool).slice(0, n);
         renderQuiz(currentSentences);
 
-        // 依序朗讀（每題間隔 15 秒）
-        const gap = 15000; // 15s
+        // 依序朗讀（每題間隔 35 秒）
+        const gap = 35000; // 35s
         currentSentences.forEach((it, idx) => {
           const t = setTimeout(() => {
             // 朗讀完整句（包含被空格遮住的詞）
